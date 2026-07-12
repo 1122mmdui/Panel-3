@@ -3,6 +3,10 @@ events { worker_connections 1024; }
 
 http {
     include mime.types;
+    server_tokens off;
+
+    # محدودسازی نرخ درخواست به مسیر لاگین پنل برای مقابله با حملات Brute-force
+    limit_req_zone $binary_remote_addr zone=login_limit:10m rate=15r/m;
 
     # تشخیص اینکه درخواست از یک اپ/کلاینت VPN میاد یا از مرورگر آدم
     map $http_user_agent $is_client_app {
@@ -31,6 +35,23 @@ http {
     server {
         listen ${NGINX_PORT};
 
+        # هدرهای امنیتی سطح سرور (روی همه‌ی مسیرها اعمال می‌شه)
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+        # محدودسازی نرخ تلاش لاگین (قبل از location اصلی پنل تا اولویت داشته باشه)
+        location = /managepanel/login {
+            limit_req zone=login_limit burst=8 nodelay;
+            proxy_pass http://127.0.0.1:2053/managepanel/login;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
         # مسیر پنل وب (فوروارد به پورت داخلی 2053 که x-ui روش گوش می‌ده)
         location /managepanel/ {
             proxy_pass http://127.0.0.1:2053/managepanel/;
@@ -42,17 +63,26 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
 
-            # جایگزینی برند Heimdall با X4G در لحظه‌ی عبور پاسخ از nginx
+            # بی‌نام‌سازی کامل پنل (این پروژه‌ی شخصی شماست، بدون برند خارجی)
+            proxy_hide_header Content-Security-Policy;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' ws: wss:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
             proxy_set_header Accept-Encoding "";
             sub_filter_once off;
             sub_filter_types application/javascript text/javascript application/json;
-            sub_filter 'HEIMDALL' 'X4G';
-            sub_filter 'Heimdall' 'X4G';
-            sub_filter 'heimdall' 'x4g';
-            sub_filter '@HeimdallStudio' 'X4G Hub';
-            sub_filter 't.me/HeimdallStudio' 'www.youtube.com/@X4GHUB';
-            sub_filter 'sh7CBAC/Heimdall' 'x4gKing';
-            sub_filter '</body>' '<script>(function(){function patch(){document.querySelectorAll("a").forEach(function(a){if(a.href&&/heimdall|sh7cbac/i.test(a.href)){a.href="https://github.com/x4gKing";}var t=a.textContent.trim();if(/^v?1\.2\.0/i.test(t)&&t.length<10){a.textContent=t.replace(/1\.2\.0/,"3.4.2");}});document.querySelectorAll("*").forEach(function(el){if(el.children.length)return;var t=el.textContent.trim();if(/^update\s+[\d.]+/i.test(t)&&t.length<20){el.textContent=t.replace(/[\d.]+/,"3.4.2");el.style.setProperty("color","inherit","important");var p=el.closest("a, button, div");if(p)p.style.setProperty("color","inherit","important");}});}patch();new MutationObserver(patch).observe(document.body,{childList:true,subtree:true,characterData:true});setInterval(patch,1500);})();</script></body>';
+            sub_filter 'HEIMDALL' 'PANEL';
+            sub_filter 'Heimdall' 'Panel';
+            sub_filter 'heimdall' 'panel';
+            sub_filter 'X4G' '';
+            sub_filter 'x4g' '';
+
+            # تزریق فونت ایران‌یکان
+            sub_filter '<head>' '<head><link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/AmirAbbasVafaee/persian-fonts-cdn@main/css/iran-yekan.css">';
+
+            # تزریق تم مشکی/آبی‌نئون + فونت فارسی روی کل رابط پنل
+            sub_filter '</head>' '<style>*{font-family:"IranYekan","Vazirmatn",sans-serif!important}html,body,#app{background:#000!important;color:#c8f7ff!important}.ant-layout,.ant-layout-sider,.ant-layout-header,.ant-layout-content,.ant-card,.ant-modal-content,.ant-modal-header,.ant-drawer-content,.ant-table,.ant-table-thead>tr>th,.ant-table-tbody>tr>td,.ant-menu,.ant-menu-dark,.ant-input,.ant-input-affix-wrapper,.ant-select-selector,.ant-picker,.ant-form-item,.ant-tabs-nav,.ant-tabs-tab,.ant-collapse,.ant-collapse-item,.ant-statistic{background:#000!important;color:#7ee8ff!important;border-color:#0ea5e9!important}.ant-btn-primary{background:#0ea5e9!important;border-color:#00eaff!important;color:#00131a!important;box-shadow:0 0 10px #00eaffaa!important}.ant-btn-primary:hover,.ant-btn-primary:focus{background:#00eaff!important;box-shadow:0 0 16px #00eaffdd!important}a{color:#00eaff!important}::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#0ea5e9!important;border-radius:8px}.ant-menu-item-selected{background:#062730!important;color:#00eaff!important;box-shadow:inset 3px 0 0 #00eaff}</style></head>';
+
+            # ترجمه‌ی بخشی از متن‌های رابط کاربری به فارسی + حذف کامل لینک‌های برند اصلی
+            sub_filter '</body>' '<script>(function(){var dict={"Login":"ورود","Sign in":"ورود","Username":"نام کاربری","Password":"رمز عبور","Dashboard":"داشبورد","Inbounds":"ورودی\u200cها","Inbound":"ورودی","Settings":"تنظیمات","Users":"کاربران","Logs":"لاگ\u200cها","Logout":"خروج","Add":"افزودن","Edit":"ویرایش","Delete":"حذف","Save":"ذخیره","Cancel":"انصراف","Confirm":"تایید","Enable":"فعال","Disable":"غیرفعال","Remark":"یادداشت","Protocol":"پروتکل","Port":"پورت","Total":"کل","Traffic":"ترافیک","Client":"کاربر","Clients":"کاربران","Search":"جستجو","Reset":"بازنشانی","Create":"ساخت","Update":"بروزرسانی","Status":"وضعیت","Online":"آنلاین","Offline":"آفلاین","Actions":"عملیات","General":"عمومی","New":"جدید","Restart":"راه\u200cاندازی مجدد","Subscription":"اشتراک","X4G":"","Log In":"ورود","Log in":"ورود","Sign In":"ورود","Welcome":"خوش آمدید","Hello":"سلام"};function walk(node){if(node.nodeType===3){var t=node.nodeValue.trim();if(Object.prototype.hasOwnProperty.call(dict,t))node.nodeValue=node.nodeValue.replace(t,dict[t]);}else{for(var i=0;i<node.childNodes.length;i++)walk(node.childNodes[i]);}}function patchAttrs(){document.querySelectorAll("[placeholder]").forEach(function(el){var v=el.getAttribute("placeholder");if(Object.prototype.hasOwnProperty.call(dict,v))el.setAttribute("placeholder",dict[v]);});}function patch(){walk(document.body);patchAttrs();document.querySelectorAll("a").forEach(function(a){if(a.href&&/heimdall|sh7cbac|x4g/i.test(a.href)){a.style.display="none";}});}patch();new MutationObserver(patch).observe(document.body,{childList:true,subtree:true,characterData:true});setInterval(patch,1200);})();</script></body>';
         }
 
         # مسیر اصلی ساب: اپ‌های VPN متن خام می‌گیرن، مرورگر صفحه‌ی زیبا می‌بینه
