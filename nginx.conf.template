@@ -1,0 +1,94 @@
+worker_processes 1;
+events { worker_connections 1024; }
+
+http {
+    include mime.types;
+
+    # تشخیص اینکه درخواست از یک اپ/کلاینت VPN میاد یا از مرورگر آدم
+    map $http_user_agent $is_client_app {
+        default 0;
+        "~*v2ray"          1;
+        "~*V2Box"          1;
+        "~*NekoBox"        1;
+        "~*NekoRay"        1;
+        "~*Shadowrocket"   1;
+        "~*Quantumult"     1;
+        "~*Clash"          1;
+        "~*sing-box"       1;
+        "~*Hiddify"        1;
+        "~*Streisand"      1;
+        "~*FoXray"         1;
+        "~*Loon"           1;
+        "~*Surge"          1;
+        "~*curl"           1;
+        "~*okhttp"         1;
+        "~*python"         1;
+        "~*Karing"         1;
+        "~*Pharos"         1;
+        ""                 1;
+    }
+
+    server {
+        listen ${NGINX_PORT};
+
+        # مسیر پنل وب (فوروارد به پورت داخلی 2053 که x-ui روش گوش می‌ده)
+        location /managepanel/ {
+            proxy_pass http://127.0.0.1:2053/managepanel/;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # جایگزینی برند Heimdall با X4G در لحظه‌ی عبور پاسخ از nginx
+            proxy_set_header Accept-Encoding "";
+            sub_filter_once off;
+            sub_filter_types application/javascript text/javascript application/json;
+            sub_filter 'HEIMDALL' 'X4G';
+            sub_filter 'Heimdall' 'X4G';
+            sub_filter 'heimdall' 'x4g';
+            sub_filter '@HeimdallStudio' 'X4G Hub';
+            sub_filter 't.me/HeimdallStudio' 'www.youtube.com/@X4GHUB';
+            sub_filter 'sh7CBAC/Heimdall' 'x4gKing';
+            sub_filter '</body>' '<script>(function(){function patch(){document.querySelectorAll("a").forEach(function(a){if(a.href&&/heimdall|sh7cbac/i.test(a.href)){a.href="https://github.com/x4gKing";}var t=a.textContent.trim();if(/^v?1\.2\.0/i.test(t)&&t.length<10){a.textContent=t.replace(/1\.2\.0/,"3.4.2");}});document.querySelectorAll("*").forEach(function(el){if(el.children.length)return;var t=el.textContent.trim();if(/^update\s+[\d.]+/i.test(t)&&t.length<20){el.textContent=t.replace(/[\d.]+/,"3.4.2");el.style.setProperty("color","inherit","important");var p=el.closest("a, button, div");if(p)p.style.setProperty("color","inherit","important");}});}patch();new MutationObserver(patch).observe(document.body,{childList:true,subtree:true,characterData:true});setInterval(patch,1500);})();</script></body>';
+        }
+
+        # مسیر اصلی ساب: اپ‌های VPN متن خام می‌گیرن، مرورگر صفحه‌ی زیبا می‌بینه
+        location /sub/ {
+            if ($is_client_app = 1) {
+                proxy_pass http://127.0.0.1:2096;
+                break;
+            }
+            root /usr/share/nginx/html;
+            try_files /view/index.html =404;
+        }
+
+        # مسیر داخلی که همیشه خام برمی‌گردونه (فقط برای fetch جاوااسکریپت صفحه‌ی زیبا)
+        location /rawsub/ {
+            proxy_pass http://127.0.0.1:2096/sub/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+        }
+
+        # صفحه‌ی نمایش زیبای ساب (کارت + QR + کپی) - برای وارد کردن دستی لینک
+        location /view/ {
+            alias /usr/share/nginx/html/view/;
+            index index.html;
+        }
+
+        # هر مسیر دیگه (اینباند VLESS/WebSocket) به پورت داخلی 8080
+        location / {
+            proxy_pass http://127.0.0.1:8080;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+
